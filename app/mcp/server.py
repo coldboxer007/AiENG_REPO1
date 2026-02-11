@@ -18,10 +18,12 @@ from app.models.company import Company
 from app.mcp.tools import (
     handle_search_companies,
     handle_get_company_profile,
-    handle_get_financial_summary,
+    handle_get_financial_report,
     handle_compare_companies,
     handle_get_stock_price_history,
-    handle_get_analyst_consensus,
+    handle_get_analyst_ratings,
+    handle_screen_stocks,
+    handle_get_sector_overview,
 )
 
 logger = logging.getLogger("mcp.server")
@@ -40,7 +42,10 @@ TOOL_DEFINITIONS: list[Tool] = [
         inputSchema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search term (name or ticker substring)"},
+                "query": {
+                    "type": "string",
+                    "description": "Search term (name or ticker substring)",
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Max results to return (1-50)",
@@ -58,9 +63,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="get_company_profile",
-        description=(
-            "Get full company profile including market_cap, employees, and description."
-        ),
+        description=("Get full company profile including market_cap, employees, and description."),
         inputSchema={
             "type": "object",
             "properties": {
@@ -70,15 +73,26 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="get_financial_summary",
+        name="get_financial_report",
         description=(
-            "Get per-year revenue, net_income, margins, and CAGR for a company."
+            "Get financial report for a company. If year and period (quarter) are provided, "
+            "return that specific report. Otherwise return per-year revenue, net_income, "
+            "margins, and CAGR for recent years."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "ticker": {"type": "string", "description": "Company ticker symbol"},
-                "years": {"type": "integer", "description": "Number of years of history", "default": 3},
+                "years": {
+                    "type": "integer",
+                    "description": "Number of years of history (used when year/period not specified)",
+                    "default": 3,
+                },
+                "year": {"type": "integer", "description": "Specific fiscal year (optional)"},
+                "period": {
+                    "type": "integer",
+                    "description": "Quarter number 1-4 (optional, use with year)",
+                },
             },
             "required": ["ticker"],
         },
@@ -99,7 +113,13 @@ TOOL_DEFINITIONS: list[Tool] = [
                 },
                 "metric": {
                     "type": "string",
-                    "enum": ["revenue", "net_income", "market_cap", "operating_margin", "net_margin"],
+                    "enum": [
+                        "revenue",
+                        "net_income",
+                        "market_cap",
+                        "operating_margin",
+                        "net_margin",
+                    ],
                     "description": "Metric to compare",
                 },
                 "year": {
@@ -120,8 +140,16 @@ TOOL_DEFINITIONS: list[Tool] = [
             "type": "object",
             "properties": {
                 "ticker": {"type": "string", "description": "Company ticker symbol"},
-                "start_date": {"type": "string", "format": "date", "description": "Start date (YYYY-MM-DD)"},
-                "end_date": {"type": "string", "format": "date", "description": "End date (YYYY-MM-DD)"},
+                "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Start date (YYYY-MM-DD)",
+                },
+                "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "End date (YYYY-MM-DD)",
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Max rows per page (1-500)",
@@ -138,9 +166,10 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="get_analyst_consensus",
+        name="get_analyst_ratings",
         description=(
-            "Get analyst consensus: rating counts, average price target, and 5 most recent ratings."
+            "Get analyst ratings: rating counts, average price target, previous ratings, "
+            "and 5 most recent ratings."
         ),
         inputSchema={
             "type": "object",
@@ -150,15 +179,64 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": ["ticker"],
         },
     ),
+    Tool(
+        name="screen_stocks",
+        description=(
+            "Screen stocks by sector, market cap range, minimum revenue, and max debt-to-equity. "
+            "Returns matching companies with key financial metrics."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "sector": {"type": "string", "description": "Filter by sector (optional)"},
+                "min_market_cap": {
+                    "type": "number",
+                    "description": "Minimum market cap in USD (optional)",
+                },
+                "max_market_cap": {
+                    "type": "number",
+                    "description": "Maximum market cap in USD (optional)",
+                },
+                "min_revenue": {
+                    "type": "number",
+                    "description": "Minimum revenue in USD (optional)",
+                },
+                "max_debt_to_equity": {
+                    "type": "number",
+                    "description": "Maximum debt-to-equity ratio (optional)",
+                },
+            },
+            "required": [],
+        },
+    ),
+    Tool(
+        name="get_sector_overview",
+        description=(
+            "Get aggregated statistics for a specific sector: average market cap, "
+            "average PE ratio, and average revenue growth."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "sector": {
+                    "type": "string",
+                    "description": "Sector name (e.g. Technology, Healthcare)",
+                },
+            },
+            "required": ["sector"],
+        },
+    ),
 ]
 
 TOOL_HANDLERS = {
     "search_companies": handle_search_companies,
     "get_company_profile": handle_get_company_profile,
-    "get_financial_summary": handle_get_financial_summary,
+    "get_financial_report": handle_get_financial_report,
     "compare_companies": handle_compare_companies,
     "get_stock_price_history": handle_get_stock_price_history,
-    "get_analyst_consensus": handle_get_analyst_consensus,
+    "get_analyst_ratings": handle_get_analyst_ratings,
+    "screen_stocks": handle_screen_stocks,
+    "get_sector_overview": handle_get_sector_overview,
 }
 
 # ---------------------------------------------------------------------------
@@ -202,12 +280,6 @@ def create_mcp_server() -> Server:
         """Expose reusable data resources for MCP clients."""
         return [
             Resource(
-                uri="financial://sectors",
-                name="Available Sectors",
-                description="List of all sectors in the database with company counts",
-                mimeType="application/json",
-            ),
-            Resource(
                 uri="financial://metrics",
                 name="Available Metrics",
                 description="List of all comparable financial metrics with descriptions",
@@ -218,23 +290,6 @@ def create_mcp_server() -> Server:
     @server.read_resource()
     async def read_resource(uri: str) -> str:
         """Read a named resource."""
-        if str(uri) == "financial://sectors":
-            async with async_session_factory() as session:
-                stmt = (
-                    select(
-                        Company.sector,
-                        func.count().label("count"),
-                    )
-                    .group_by(Company.sector)
-                    .order_by(func.count().desc())
-                )
-                result = await session.execute(stmt)
-                sectors = [
-                    {"sector": r.sector, "count": r.count}
-                    for r in result.all()
-                ]
-                return json.dumps(sectors, indent=2)
-
         if str(uri) == "financial://metrics":
             return json.dumps(
                 {
@@ -303,9 +358,9 @@ def create_mcp_server() -> Server:
                         text=(
                             f"Analyse the {sector} sector using these steps:\n\n"
                             f"1. Use search_companies to find all {sector} companies\n"
-                            "2. For each company, get_financial_summary for the last 3 years\n"
+                            "2. For each company, get_financial_report for the last 3 years\n"
                             "3. Use compare_companies to rank them by revenue growth (revenue)\n"
-                            "4. Get get_analyst_consensus for the top 3 performers\n"
+                            "4. Get get_analyst_ratings for the top 3 performers\n"
                             "5. Summarise which companies are best positioned for growth\n\n"
                             "Focus on revenue trends, profitability margins, and analyst sentiment."
                         ),
@@ -327,7 +382,7 @@ def create_mcp_server() -> Server:
                             "   - Note the total_return_pct\n"
                             "2. Rank companies by total return\n"
                             "3. For top 5 performers:\n"
-                            "   - Get get_analyst_consensus\n"
+                            "   - Get get_analyst_ratings\n"
                             "   - Check if analyst sentiment aligns with price momentum\n"
                             "4. Identify momentum + positive analyst sentiment plays"
                         ),
@@ -348,7 +403,11 @@ def create_mcp_server() -> Server:
 async def run_mcp_server() -> None:
     """Start the MCP server using stdio transport."""
     server = create_mcp_server()
-    logger.info("Starting MCP server '%s' v%s (stdio)", settings.mcp_server_name, settings.mcp_server_version)
+    logger.info(
+        "Starting MCP server '%s' v%s (stdio)",
+        settings.mcp_server_name,
+        settings.mcp_server_version,
+    )
 
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())

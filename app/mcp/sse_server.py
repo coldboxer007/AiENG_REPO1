@@ -63,6 +63,7 @@ app = FastAPI(
 # Health
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health")
 async def health():
     return {
@@ -75,6 +76,7 @@ async def health():
 # ---------------------------------------------------------------------------
 # SSE endpoint
 # ---------------------------------------------------------------------------
+
 
 @app.get("/sse")
 async def sse_endpoint(request: Request):
@@ -120,6 +122,7 @@ async def sse_endpoint(request: Request):
 # ---------------------------------------------------------------------------
 # Message endpoint (client → server)
 # ---------------------------------------------------------------------------
+
 
 @app.post("/messages")
 async def messages_endpoint(request: Request, session_id: str):

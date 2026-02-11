@@ -58,13 +58,10 @@ async def get_stock_price_history(
         except Exception:
             pass
 
-    stmt = (
-        select(StockPrice)
-        .where(
-            StockPrice.company_id == company_id,
-            StockPrice.date >= start_date,
-            StockPrice.date <= end_date,
-        )
+    stmt = select(StockPrice).where(
+        StockPrice.company_id == company_id,
+        StockPrice.date >= start_date,
+        StockPrice.date <= end_date,
     )
 
     if cursor_date:

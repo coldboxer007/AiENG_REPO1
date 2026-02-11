@@ -87,8 +87,10 @@ rate_limiter = RateLimiter()
 TOOL_RATE_LIMITS: dict[str, dict[str, int]] = {
     "search_companies": {"max_requests": 60, "window_seconds": 60},
     "get_company_profile": {"max_requests": 60, "window_seconds": 60},
-    "get_financial_summary": {"max_requests": 60, "window_seconds": 60},
+    "get_financial_report": {"max_requests": 60, "window_seconds": 60},
     "compare_companies": {"max_requests": 30, "window_seconds": 60},
     "get_stock_price_history": {"max_requests": 60, "window_seconds": 60},
-    "get_analyst_consensus": {"max_requests": 60, "window_seconds": 60},
+    "get_analyst_ratings": {"max_requests": 60, "window_seconds": 60},
+    "screen_stocks": {"max_requests": 30, "window_seconds": 60},
+    "get_sector_overview": {"max_requests": 60, "window_seconds": 60},
 }

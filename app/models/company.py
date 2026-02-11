@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Index, Numeric, String, Text, Integer, DateTime
+from sqlalchemy import Index, Numeric, String, Text, Integer, DateTime, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -19,9 +19,7 @@ class Base(DeclarativeBase):
 class Company(Base):
     __tablename__ = "companies"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ticker: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     sector: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -29,6 +27,8 @@ class Company(Base):
     market_cap: Mapped[float] = mapped_column(Numeric(20, 2), nullable=True)
     employees: Mapped[int] = mapped_column(Integer, nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=True)
+    ceo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    founded_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     country: Mapped[str] = mapped_column(String(80), nullable=False, default="US")
     currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
     created_at: Mapped[datetime] = mapped_column(
@@ -44,6 +44,8 @@ class Company(Base):
 
     __table_args__ = (
         Index("ix_companies_ticker", "ticker"),
+        Index("ix_companies_sector", "sector"),
+        Index("ix_companies_market_cap", "market_cap"),
     )
 
     def __repr__(self) -> str:

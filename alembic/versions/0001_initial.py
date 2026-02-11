@@ -4,6 +4,7 @@ Revision ID: 0001_initial
 Revises: 
 Create Date: 2025-01-01 00:00:00.000000
 """
+
 from typing import Sequence, Union
 
 from alembic import op

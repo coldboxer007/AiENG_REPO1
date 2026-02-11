@@ -15,9 +15,7 @@ from app.models.company import Base
 class StockPrice(Base):
     __tablename__ = "stock_prices"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False
     )
@@ -37,6 +35,7 @@ class StockPrice(Base):
         UniqueConstraint("company_id", "date", name="uq_stock_prices_company_date"),
         Index("ix_stock_prices_company_id", "company_id"),
         Index("ix_stock_prices_date", "date"),
+        Index("ix_stock_prices_company_date", "company_id", "date"),
     )
 
     def __repr__(self) -> str:

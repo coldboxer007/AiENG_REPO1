@@ -33,15 +33,12 @@ async def get_analyst_consensus(
         .order_by(func.count().desc())
     )
     count_result = await session.execute(count_stmt)
-    rating_counts = [
-        RatingCount(rating=row.rating, count=row.cnt) for row in count_result.all()
-    ]
+    rating_counts = [RatingCount(rating=row.rating, count=row.cnt) for row in count_result.all()]
     total = sum(rc.count for rc in rating_counts)
 
     # Average price target
-    avg_stmt = (
-        select(func.avg(AnalystRating.price_target))
-        .where(AnalystRating.company_id == company_id)
+    avg_stmt = select(func.avg(AnalystRating.price_target)).where(
+        AnalystRating.company_id == company_id
     )
     avg_result = await session.execute(avg_stmt)
     avg_pt = avg_result.scalar()
@@ -59,6 +56,7 @@ async def get_analyst_consensus(
         AnalystRatingRow(
             firm_name=r.firm_name,
             rating=r.rating,
+            previous_rating=r.previous_rating,
             price_target=float(r.price_target) if r.price_target else None,
             rating_date=r.rating_date,
             notes=r.notes,

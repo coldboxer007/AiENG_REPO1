@@ -18,7 +18,7 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     MCP Server (server.py)                          │
 │  ┌────────────┐  ┌──────────────┐  ┌──────────┐  ┌─────────────┐  │
-│  │ 6 Tools    │  │ 2 Resources  │  │ 2 Prompts│  │ Rate Limiter│  │
+│  │ 8 Tools    │  │ 1 Resource   │  │ 2 Prompts│  │ Rate Limiter│  │
 │  └────────────┘  └──────────────┘  └──────────┘  └─────────────┘  │
 │                           │                                         │
 │  ┌────────────────────────▼─────────────────────────────────────┐  │
@@ -42,7 +42,7 @@
 
 | Layer | Files | Purpose |
 |---|---|---|
-| **MCP Server** | `app/mcp/server.py` | Registers 6 tools, 2 resources, 2 prompts.  JSON-RPC over stdio. |
+| **MCP Server** | `app/mcp/server.py` | Registers 8 tools, 1 resource, 2 prompts.  JSON-RPC over stdio. |
 | **SSE Transport** | `app/mcp/sse_server.py` | MCP over HTTP Server-Sent Events (port 8000). |
 | **Tool Handlers** | `app/mcp/tools.py` | Input validation, rate limiting, response formatting. |
 | **Services** | `app/services/*.py` | Async business logic, DB queries, cursor pagination. |
@@ -162,7 +162,10 @@ Restart Claude Desktop, then try prompts like:
 - *"Search for technology companies in the database"* → uses `search_companies`
 - *"Compare Alpha Corp and Beta Industries on revenue"* → uses `compare_companies`
 - *"Show me the stock price chart for ALPH over the last month"* → uses `get_stock_price_history`
-- *"What are analysts saying about ALPH?"* → uses `get_analyst_consensus`
+- *"What are analysts saying about ALPH?"* → uses `get_analyst_ratings`
+- *"Get the financial report for ALPH"* → uses `get_financial_report`
+- *"Screen stocks with high revenue in the Technology sector"* → uses `screen_stocks`
+- *"Show me an overview of the Technology sector"* → uses `get_sector_overview`
 
 ## Using with Cursor
 
@@ -189,7 +192,7 @@ npx @modelcontextprotocol/inspector python -m app.mcp.server
 
 ---
 
-## MCP Tools Reference (6 tools)
+## MCP Tools Reference (8 tools)
 
 All tools return the standard **ToolResponse** envelope:
 
@@ -243,14 +246,16 @@ Full company profile by ticker.
 |---|---|---|
 | `ticker` | string | ✅ |
 
-### 3. `get_financial_summary`
+### 3. `get_financial_report`
 
-Per-year revenue, net_income, margins, and CAGR.
+Per-year revenue, net_income, margins, and CAGR. Can also fetch specific quarter data.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `ticker` | string | ✅ | Company ticker |
 | `years` | integer | | Years of history (default 3) |
+| `year` | integer | | Specific fiscal year (optional) |
+| `period` | integer | | Quarter number 1-4 (optional) |
 
 ### 4. `compare_companies`
 
@@ -274,7 +279,7 @@ Daily OHLC prices with **cursor-based pagination**.
 | `limit` | integer | | Max rows per page (1-500, default 100) |
 | `cursor` | string | | Pagination cursor |
 
-### 6. `get_analyst_consensus`
+### 6. `get_analyst_ratings`
 
 Analyst rating counts, average price target, and 5 most recent ratings.
 
@@ -282,15 +287,34 @@ Analyst rating counts, average price target, and 5 most recent ratings.
 |---|---|---|
 | `ticker` | string | ✅ |
 
+### 7. `screen_stocks`
+
+Screen stocks by sector, market cap range, minimum revenue, and max debt-to-equity.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `sector` | string | | Filter by sector |
+| `min_market_cap` | number | | Minimum market cap in USD |
+| `max_market_cap` | number | | Maximum market cap in USD |
+| `min_revenue` | number | | Minimum revenue in USD |
+| `max_debt_to_equity` | number | | Maximum debt-to-equity ratio |
+
+### 8. `get_sector_overview`
+
+Get aggregated statistics for a sector: average market cap, average PE ratio, and average revenue growth.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `sector` | string | ✅ | Sector name (e.g., Technology, Healthcare) |
+
 ---
 
-## MCP Resources (2)
+## MCP Resources (1)
 
 Resources expose reusable, read-only data that clients can query independently of tools.
 
 | URI | Description |
 |---|---|
-| `financial://sectors` | List of all sectors with company counts |
 | `financial://metrics` | Available comparison metrics with descriptions |
 
 ### Example: List resources request
@@ -423,9 +447,12 @@ Benchmarks (local PostgreSQL 16, Apple M-series):
 |---|---|
 | `search_companies` | ~8 ms |
 | `get_company_profile` | ~5 ms |
-| `get_financial_summary` (3 years) | ~12 ms |
+| `get_financial_report` (3 years) | ~12 ms |
 | `get_stock_price_history` (1 year, ~250 rows) | ~15 ms |
-| `get_analyst_consensus` | ~6 ms |
+| `get_analyst_ratings` | ~6 ms |
+| `compare_companies` | ~10 ms |
+| `screen_stocks` | ~20 ms |
+| `get_sector_overview` | ~15 ms |
 
 Run benchmarks:
 
@@ -447,6 +474,7 @@ black --check app/ tests/ scripts/
 ## Project Documentation
 
 - [Architecture Decision Records](docs/ARCHITECTURE.md) – explains RLS, pagination, lazy loading, and rate limiting design choices.
+- [Database Schema](docs/SCHEMA.md) – complete database schema documentation with ERD diagram.
 
 ---
 

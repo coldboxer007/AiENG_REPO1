@@ -21,11 +21,13 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.mcp.tools import (
     handle_compare_companies,
-    handle_get_analyst_consensus,
+    handle_get_analyst_ratings,
     handle_get_company_profile,
-    handle_get_financial_summary,
+    handle_get_financial_report,
     handle_get_stock_price_history,
     handle_search_companies,
+    handle_screen_stocks,
+    handle_get_sector_overview,
 )
 
 logger = logging.getLogger("app.dev.debug_server")
@@ -73,9 +75,19 @@ async def debug_get_company_profile(ticker: str = Query(...)):
     return JSONResponse(content=result)
 
 
-@app.get("/debug/get_financial_summary")
-async def debug_get_financial_summary(ticker: str = Query(...), years: int = Query(3)):
-    result = await handle_get_financial_summary({"ticker": ticker, "years": years})
+@app.get("/debug/get_financial_report")
+async def debug_get_financial_report(
+    ticker: str = Query(...),
+    years: int = Query(3),
+    year: int | None = Query(None),
+    period: int | None = Query(None),
+):
+    args: dict = {"ticker": ticker, "years": years}
+    if year is not None:
+        args["year"] = year
+    if period is not None:
+        args["period"] = period
+    result = await handle_get_financial_report(args)
     return JSONResponse(content=result)
 
 
@@ -102,15 +114,49 @@ async def debug_get_stock_price_history(
     cursor: str | None = Query(None),
 ):
     result = await handle_get_stock_price_history(
-        {"ticker": ticker, "start_date": start_date, "end_date": end_date,
-         "limit": limit, "cursor": cursor}
+        {
+            "ticker": ticker,
+            "start_date": start_date,
+            "end_date": end_date,
+            "limit": limit,
+            "cursor": cursor,
+        }
     )
     return JSONResponse(content=result)
 
 
-@app.get("/debug/get_analyst_consensus")
-async def debug_get_analyst_consensus(ticker: str = Query(...)):
-    result = await handle_get_analyst_consensus({"ticker": ticker})
+@app.get("/debug/get_analyst_ratings")
+async def debug_get_analyst_ratings(ticker: str = Query(...)):
+    result = await handle_get_analyst_ratings({"ticker": ticker})
+    return JSONResponse(content=result)
+
+
+@app.get("/debug/screen_stocks")
+async def debug_screen_stocks(
+    sector: str | None = Query(None),
+    min_market_cap: float | None = Query(None),
+    max_market_cap: float | None = Query(None),
+    min_revenue: float | None = Query(None),
+    max_debt_to_equity: float | None = Query(None),
+):
+    args: dict = {}
+    if sector is not None:
+        args["sector"] = sector
+    if min_market_cap is not None:
+        args["min_market_cap"] = min_market_cap
+    if max_market_cap is not None:
+        args["max_market_cap"] = max_market_cap
+    if min_revenue is not None:
+        args["min_revenue"] = min_revenue
+    if max_debt_to_equity is not None:
+        args["max_debt_to_equity"] = max_debt_to_equity
+    result = await handle_screen_stocks(args)
+    return JSONResponse(content=result)
+
+
+@app.get("/debug/get_sector_overview")
+async def debug_get_sector_overview(sector: str = Query(...)):
+    result = await handle_get_sector_overview({"sector": sector})
     return JSONResponse(content=result)
 
 

@@ -15,10 +15,12 @@ import pytest
 from app.mcp.tools import (
     handle_search_companies,
     handle_get_company_profile,
-    handle_get_financial_summary,
+    handle_get_financial_report,
     handle_compare_companies,
     handle_get_stock_price_history,
-    handle_get_analyst_consensus,
+    handle_get_analyst_ratings,
+    handle_screen_stocks,
+    handle_get_sector_overview,
     _error_response,
     _ok,
     _ticker_not_found,
@@ -85,9 +87,9 @@ async def test_get_company_profile_empty_ticker():
 
 
 @pytest.mark.asyncio
-async def test_get_financial_summary_empty_ticker():
+async def test_get_financial_report_empty_ticker():
     """Empty ticker should fail."""
-    result = await handle_get_financial_summary({"ticker": ""})
+    result = await handle_get_financial_report({"ticker": ""})
     assert result["ok"] is False
 
 
@@ -118,19 +120,21 @@ async def test_stock_history_missing_fields():
 @pytest.mark.asyncio
 async def test_stock_history_bad_date_format():
     """Malformed dates should fail."""
-    result = await handle_get_stock_price_history({
-        "ticker": "ALPH",
-        "start_date": "not-a-date",
-        "end_date": "2024-01-01",
-    })
+    result = await handle_get_stock_price_history(
+        {
+            "ticker": "ALPH",
+            "start_date": "not-a-date",
+            "end_date": "2024-01-01",
+        }
+    )
     assert result["ok"] is False
     assert "YYYY-MM-DD" in result["error"]["message"]
 
 
 @pytest.mark.asyncio
-async def test_analyst_consensus_empty_ticker():
+async def test_analyst_ratings_empty_ticker():
     """Empty ticker should fail."""
-    result = await handle_get_analyst_consensus({"ticker": ""})
+    result = await handle_get_analyst_ratings({"ticker": ""})
     assert result["ok"] is False
 
 

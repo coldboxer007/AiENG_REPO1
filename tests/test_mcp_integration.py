@@ -11,19 +11,21 @@ from app.mcp.server import create_mcp_server, TOOL_DEFINITIONS
 
 @pytest.mark.asyncio
 async def test_mcp_list_tools():
-    """MCP server should list all 6 tools."""
+    """MCP server should list all 8 tools."""
     server = create_mcp_server()
     # Access the internal handler registered via @server.list_tools()
     tools = TOOL_DEFINITIONS
-    assert len(tools) == 6
+    assert len(tools) == 8
     tool_names = {t.name for t in tools}
     assert tool_names == {
         "search_companies",
         "get_company_profile",
-        "get_financial_summary",
+        "get_financial_report",
         "compare_companies",
         "get_stock_price_history",
-        "get_analyst_consensus",
+        "get_analyst_ratings",
+        "screen_stocks",
+        "get_sector_overview",
     }
 
 
@@ -34,9 +36,9 @@ async def test_tool_schemas_have_required_fields():
         assert tool.name, "Tool must have a name"
         assert tool.description, f"Tool {tool.name} must have a description"
         assert tool.inputSchema, f"Tool {tool.name} must have an inputSchema"
-        assert "properties" in tool.inputSchema, (
-            f"Tool {tool.name} inputSchema must have properties"
-        )
+        assert (
+            "properties" in tool.inputSchema
+        ), f"Tool {tool.name} inputSchema must have properties"
 
 
 @pytest.mark.asyncio

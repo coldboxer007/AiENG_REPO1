@@ -15,12 +15,8 @@ class Settings(BaseSettings):
     )
 
     # Database
-    database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/financial_mcp"
-    )
-    database_url_sync: str = (
-        "postgresql+psycopg2://postgres:postgres@localhost:5432/financial_mcp"
-    )
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/financial_mcp"
+    database_url_sync: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/financial_mcp"
 
     # App
     app_env: str = "development"

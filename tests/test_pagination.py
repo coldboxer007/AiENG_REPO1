@@ -71,8 +71,12 @@ async def test_stock_pagination_traverse(seeded_session):
     cursor = None
     for _ in range(20):
         data = await get_stock_price_history(
-            seeded_session, "ALPH", date(2024, 3, 1), date(2024, 3, 31),
-            limit=3, cursor=cursor,
+            seeded_session,
+            "ALPH",
+            date(2024, 3, 1),
+            date(2024, 3, 31),
+            limit=3,
+            cursor=cursor,
         )
         assert data is not None
         for p in data.prices:

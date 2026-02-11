@@ -63,8 +63,6 @@ async def test_stock_history_empty_range(seeded_session):
 @pytest.mark.asyncio
 async def test_stock_history_single_day(seeded_session):
     """Query for a single trading day should work."""
-    data = await get_stock_price_history(
-        seeded_session, "ALPH", date(2024, 3, 4), date(2024, 3, 4)
-    )
+    data = await get_stock_price_history(seeded_session, "ALPH", date(2024, 3, 4), date(2024, 3, 4))
     assert data is not None
     assert len(data.prices) <= 1

@@ -39,15 +39,24 @@ SECTORS = [
 
 RATING_LABELS = ["Strong Buy", "Buy", "Hold", "Underperform", "Sell"]
 ANALYST_FIRMS = [
-    "Goldman Sachs", "Morgan Stanley", "JP Morgan", "Barclays",
-    "Citi", "BofA Securities", "UBS", "Deutsche Bank",
-    "Credit Suisse", "Jefferies", "Raymond James", "Piper Sandler",
+    "Goldman Sachs",
+    "Morgan Stanley",
+    "JP Morgan",
+    "Barclays",
+    "Citi",
+    "BofA Securities",
+    "UBS",
+    "Deutsche Bank",
+    "Credit Suisse",
+    "Jefferies",
+    "Raymond James",
+    "Piper Sandler",
 ]
 
-# Generate 10 unique tickers
+# Generate 20 unique tickers
 TICKERS: list[str] = []
 _used: set[str] = set()
-while len(TICKERS) < 10:
+while len(TICKERS) < 20:
     t = fake.lexify(text="????", letters="ABCDEFGHIJKLMNOPQRSTUVWXYZ").upper()
     if len(t) <= 5 and t not in _used:
         _used.add(t)
@@ -64,7 +73,7 @@ def _random_market_cap() -> float:
 
 
 def seed_companies(session: Session) -> list[Company]:
-    """Create 10 companies."""
+    """Create 20 companies."""
     companies: list[Company] = []
     for ticker in TICKERS:
         sector, industries = random.choice(SECTORS)
@@ -77,6 +86,8 @@ def seed_companies(session: Session) -> list[Company]:
             market_cap=_random_market_cap(),
             employees=random.randint(500, 150_000),
             description=fake.paragraph(nb_sentences=3),
+            ceo=fake.name(),
+            founded_year=random.randint(1900, 2020),
             country=random.choice(["US", "US", "US", "UK", "DE", "JP"]),
             currency="USD",
         )
@@ -87,7 +98,7 @@ def seed_companies(session: Session) -> list[Company]:
 
 
 def seed_financials(session: Session, companies: list[Company]) -> int:
-    """Generate 80+ financial report rows (quarterly across 2 years per company)."""
+    """Generate 160+ financial report rows (quarterly across 2 years per company)."""
     count = 0
     for comp in companies:
         base_revenue = random.uniform(1e8, 5e10)
@@ -102,6 +113,9 @@ def seed_financials(session: Session, companies: list[Company]) -> int:
                 liabilities = assets * random.uniform(0.30, 0.65)
                 operating_margin = operating_income / revenue if revenue else 0
                 net_margin = net_income / revenue if revenue else 0
+                gross_margin = gross_profit / revenue if revenue else 0
+                debt_to_equity = round(random.uniform(0.1, 5.0), 4)
+                free_cash_flow = operating_income * random.uniform(0.7, 1.2)
 
                 month = quarter * 3
                 report_dt = date(year, month, min(28, random.randint(15, 28)))
@@ -121,6 +135,9 @@ def seed_financials(session: Session, companies: list[Company]) -> int:
                         liabilities=round(liabilities, 2),
                         operating_margin=round(operating_margin, 4),
                         net_margin=round(net_margin, 4),
+                        gross_margin=round(gross_margin, 4),
+                        debt_to_equity=debt_to_equity,
+                        free_cash_flow=round(free_cash_flow, 2),
                         report_date=report_dt,
                     )
                 )
@@ -170,17 +187,26 @@ def seed_stock_prices(session: Session, companies: list[Company]) -> int:
 
 
 def seed_analyst_ratings(session: Session, companies: list[Company]) -> int:
-    """Generate 40+ analyst rating rows."""
+    """Generate 80+ analyst rating rows."""
     count = 0
     for comp in companies:
         n_ratings = random.randint(4, 8)
         for _ in range(n_ratings):
+            current_rating = random.choice(RATING_LABELS)
+            # previous_rating: randomly pick a different rating, or None
+            if random.random() > 0.3:
+                candidates = [r for r in RATING_LABELS if r != current_rating]
+                prev_rating: str | None = random.choice(candidates) if candidates else None
+            else:
+                prev_rating = None
+
             session.add(
                 AnalystRating(
                     id=uuid.uuid4(),
                     company_id=comp.id,
                     firm_name=random.choice(ANALYST_FIRMS),
-                    rating=random.choice(RATING_LABELS),
+                    rating=current_rating,
+                    previous_rating=prev_rating,
                     price_target=round(random.uniform(20.0, 600.0), 2),
                     rating_date=fake.date_between(start_date="-1y", end_date="today"),
                     notes=fake.sentence() if random.random() > 0.4 else None,

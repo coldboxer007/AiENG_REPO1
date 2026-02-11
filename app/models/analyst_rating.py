@@ -15,14 +15,13 @@ from app.models.company import Base
 class AnalystRating(Base):
     __tablename__ = "analyst_ratings"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False
     )
     firm_name: Mapped[str] = mapped_column(String(150), nullable=False)
     rating: Mapped[str] = mapped_column(String(30), nullable=False)
+    previous_rating: Mapped[str | None] = mapped_column(String(30), nullable=True)
     price_target: Mapped[float] = mapped_column(Numeric(12, 2), nullable=True)
     rating_date: Mapped[date] = mapped_column(Date, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -34,6 +33,7 @@ class AnalystRating(Base):
 
     __table_args__ = (
         Index("ix_analyst_ratings_company_id", "company_id"),
+        Index("ix_analyst_ratings_date", "rating_date"),
     )
 
     def __repr__(self) -> str:

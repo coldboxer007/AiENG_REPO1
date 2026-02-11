@@ -42,13 +42,10 @@ async def search_companies(
             pass  # Invalid cursor – start from beginning
 
     pattern = f"%{query}%"
-    stmt = (
-        select(Company)
-        .where(
-            or_(
-                Company.ticker.ilike(pattern),
-                Company.name.ilike(pattern),
-            )
+    stmt = select(Company).where(
+        or_(
+            Company.ticker.ilike(pattern),
+            Company.name.ilike(pattern),
         )
     )
 
@@ -108,6 +105,8 @@ async def get_company_by_ticker(
         market_cap=float(row.market_cap) if row.market_cap else None,
         employees=row.employees,
         description=row.description,
+        ceo=row.ceo,
+        founded_year=row.founded_year,
         country=row.country,
         currency=row.currency,
     )

@@ -12,6 +12,7 @@ class AnalystRatingRow(BaseModel):
 
     firm_name: str
     rating: str
+    previous_rating: str | None = None
     price_target: float | None = None
     rating_date: date
     notes: str | None = None
