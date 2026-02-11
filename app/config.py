@@ -30,5 +30,28 @@ class Settings(BaseSettings):
     fastapi_host: str = "0.0.0.0"
     fastapi_port: int = 8000
 
+    # Security & RLS
+    enable_rls: bool = False
+    """Enable Row Level Security. Should be True for production Supabase deployments."""
+
+    supabase_jwt_secret: str | None = None
+    """JWT secret for Supabase Auth verification. Required if enable_rls=True."""
+
+    admin_api_key: str | None = None
+    """API key for admin operations. Used to bypass RLS for system operations."""
+
+    cursor_secret: str = "change-me-in-production"
+    """Secret key for signing pagination cursors. Rotate regularly in production."""
+
+    # Rate Limiting
+    rate_limit_enabled: bool = True
+    rate_limit_default: int = 60
+    rate_limit_compare: int = 30
+
+    # Security Headers
+    enable_security_headers: bool = True
+    allowed_origins: str = "*"
+    """Comma-separated list of allowed CORS origins. Use '*' only in development."""
+
 
 settings = Settings()

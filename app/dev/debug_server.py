@@ -29,6 +29,8 @@ from app.mcp.tools import (
     handle_screen_stocks,
     handle_get_sector_overview,
 )
+from app.middleware.security import SecurityHeadersMiddleware, parse_cors_origins
+from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger("app.dev.debug_server")
 
@@ -46,6 +48,18 @@ app = FastAPI(
     version=settings.mcp_server_version,
     lifespan=lifespan,
 )
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=parse_cors_origins(settings.allowed_origins),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

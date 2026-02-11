@@ -49,6 +49,8 @@
 | **Models** | `app/models/*.py` | SQLAlchemy 2.0 ORM (4 tables, UUID PKs, indexes). |
 | **Schemas** | `app/schemas/*.py` | Pydantic v2 response models + `ToolResponse` envelope. |
 | **Rate Limiter** | `app/middleware/rate_limit.py` | Sliding-window per-tool rate limiting. |
+| **Security Headers** | `app/middleware/security.py` | OWASP-compliant security headers (CSP, HSTS, CORS). |
+| **RLS** | `app/utils/rls.py` | Row Level Security for multi-tenant deployments. |
 | **Migrations** | `alembic/` | Alembic migration for full schema. |
 | **Seed** | `scripts/seed.py` | Faker-based seed (10 companies, 80+ financials, 600+ prices, 40+ ratings). |
 | **Tests** | `tests/` | 30+ pytest-asyncio tests (tools, pagination, rate limiting, security). |
@@ -121,9 +123,13 @@ The server communicates over **stdin/stdout** using JSON-RPC per the MCP specifi
 
 ```bash
 python -m app.mcp.sse_server
-# SSE stream:    GET  http://localhost:8000/sse
-# Post messages: POST http://localhost:8000/messages?session_id=<id>
-# Health check:  GET  http://localhost:8000/health
+# SSE stream:       GET  http://localhost:8000/sse
+# Post messages:    POST http://localhost:8000/messages?session_id=<id>
+# Health check:     GET  http://localhost:8000/health
+# OpenAPI spec:     GET  http://localhost:8000/openapi.json
+# Swagger UI:       GET  http://localhost:8000/docs
+# ReDoc UI:         GET  http://localhost:8000/redoc
+# REST API Tools:   POST http://localhost:8000/tools/{tool_name}
 ```
 
 ### Option C: HTTP debug server (optional, dev-only)
@@ -349,6 +355,35 @@ Prompt templates guide an LLM through multi-step analyses.
 ---
 
 ## Security
+
+### OWASP-Compliant Security Headers
+
+All HTTP responses include security headers following OWASP recommendations:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | Force HTTPS |
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME sniffing |
+| `X-Frame-Options` | `DENY` | Prevent clickjacking |
+| `Content-Security-Policy` | Strict CSP | XSS protection |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Privacy protection |
+| `Permissions-Policy` | Restrictive | Disable unnecessary APIs |
+| `X-Request-ID` | UUID v4 | Request tracing |
+
+CORS is configurable via `ALLOWED_ORIGINS` environment variable.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for detailed security documentation.
+
+### Row Level Security (RLS)
+
+For multi-tenant deployments, enable RLS with `ENABLE_RLS=true`:
+
+- Companies can be public (`user_id=NULL`) or private (owned by user)
+- Users can only access their own data + public data
+- Admins can bypass RLS to access all data
+- PostgreSQL policies enforce access at database level
+
+See [docs/RLS.md](docs/RLS.md) for RLS documentation.
 
 ### Input Validation
 

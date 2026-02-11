@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Index, Numeric, String, Text, Integer, DateTime, Float
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text, Integer, DateTime, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -35,17 +35,24 @@ class Company(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    # RLS: Owner of this company (NULL = public company)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
+
     # Relationships – use lazy="select" (default) so we only load related
     # data when explicitly requested via selectinload() / joinedload().
     # This prevents N+1 queries and unnecessary data transfer.
     financials = relationship("Financial", back_populates="company", lazy="select")
     stock_prices = relationship("StockPrice", back_populates="company", lazy="select")
     analyst_ratings = relationship("AnalystRating", back_populates="company", lazy="select")
+    owner = relationship("User", back_populates="companies", lazy="select")
 
     __table_args__ = (
         Index("ix_companies_ticker", "ticker"),
         Index("ix_companies_sector", "sector"),
         Index("ix_companies_market_cap", "market_cap"),
+        Index("ix_companies_user_id", "user_id"),
     )
 
     def __repr__(self) -> str:
