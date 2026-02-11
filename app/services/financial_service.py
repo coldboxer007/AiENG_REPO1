@@ -44,7 +44,7 @@ async def get_financial_summary(
     rows = list(annual_result.scalars().all())
 
     if not rows:
-        # Fallback: aggregate quarterly rows
+        # Fallback: aggregate quarterly rows (only aggregated fields available)
         q_stmt = (
             select(
                 Financial.period_year,
@@ -69,6 +69,9 @@ async def get_financial_summary(
                 operating_margin=_to_float(r.operating_margin),
                 net_margin=_to_float(r.net_margin),
                 eps=_to_float(r.eps),
+                gross_margin=None,
+                debt_to_equity=None,
+                free_cash_flow=None,
             )
             for r in q_rows
         ]
@@ -81,6 +84,9 @@ async def get_financial_summary(
                 operating_margin=_to_float(r.operating_margin),
                 net_margin=_to_float(r.net_margin),
                 eps=_to_float(r.eps),
+                gross_margin=_to_float(r.gross_margin),
+                debt_to_equity=_to_float(r.debt_to_equity),
+                free_cash_flow=_to_float(r.free_cash_flow),
             )
             for r in rows
         ]
