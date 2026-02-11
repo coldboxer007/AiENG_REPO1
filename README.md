@@ -1,7 +1,8 @@
 # Repo 1 — Financial Data MCP Server
 
 > **MCP-compliant server** exposing financial data tools for LLM tool-calling and function execution.  
-> Built with **Python 3.11+**, **FastAPI**, **SQLAlchemy 2.0**, **PostgreSQL**, and the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+> Built with **Python 3.11+**, **SQLAlchemy 2.0**, **PostgreSQL**, and the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).  
+> Supports **stdio** and **SSE** transports, cursor-based pagination, rate limiting, MCP resources & prompts.
 
 ---
 
@@ -9,25 +10,25 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        LLM / Agent Client                          │
-│                   (Claude, GPT, custom agent)                      │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │  MCP (stdio / JSON-RPC)
-                             ▼
+│                    LLM / Agent Client                               │
+│              (Claude Desktop, Cursor, MCP Inspector)                │
+└──────────────────────┬──────────────────────┬───────────────────────┘
+                       │  stdio (JSON-RPC)    │  SSE (HTTP)
+                       ▼                      ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        MCP Server (server.py)                       │
-│  ┌────────────┐  ┌──────────────────┐  ┌────────────────────────┐  │
-│  │ Tool Defs  │  │  Tool Handlers   │  │ ToolResponse envelope  │  │
-│  └────────────┘  └────────┬─────────┘  └────────────────────────┘  │
+│                     MCP Server (server.py)                          │
+│  ┌────────────┐  ┌──────────────┐  ┌──────────┐  ┌─────────────┐  │
+│  │ 6 Tools    │  │ 2 Resources  │  │ 2 Prompts│  │ Rate Limiter│  │
+│  └────────────┘  └──────────────┘  └──────────┘  └─────────────┘  │
 │                           │                                         │
 │  ┌────────────────────────▼─────────────────────────────────────┐  │
-│  │              Service Layer (async)                            │  │
+│  │           Service Layer (async, cursor pagination)           │  │
 │  │  company_service · financial_service · stock_service          │  │
 │  │  analyst_service · metrics (CAGR, drawdown, returns)         │  │
 │  └────────────────────────┬─────────────────────────────────────┘  │
 │                           │                                         │
 │  ┌────────────────────────▼─────────────────────────────────────┐  │
-│  │           SQLAlchemy 2.0 async ORM + Pydantic v2             │  │
+│  │        SQLAlchemy 2.0 async ORM + Pydantic v2 schemas        │  │
 │  └────────────────────────┬─────────────────────────────────────┘  │
 └───────────────────────────┼─────────────────────────────────────────┘
                             │
@@ -41,14 +42,17 @@
 
 | Layer | Files | Purpose |
 |---|---|---|
-| **MCP Server** | `app/mcp/server.py`, `app/mcp/tools.py` | Registers 6 MCP tools, handles JSON-RPC over stdio |
-| **FastAPI** | `app/main.py` | `/health` + `/debug/*` HTTP endpoints for manual testing |
-| **Services** | `app/services/*.py` | Async business logic, DB queries, metrics |
-| **Models** | `app/models/*.py` | SQLAlchemy 2.0 ORM (4 tables, UUID PKs, indexes) |
-| **Schemas** | `app/schemas/*.py` | Pydantic v2 response models + `ToolResponse` envelope |
-| **Migrations** | `alembic/` | Alembic migration for full schema |
-| **Seed** | `scripts/seed.py` | Faker-based seed (10 companies, 80+ financials, 600+ prices, 40+ ratings) |
-| **Tests** | `tests/` | 16 pytest-asyncio tests across all 6 tools |
+| **MCP Server** | `app/mcp/server.py` | Registers 6 tools, 2 resources, 2 prompts.  JSON-RPC over stdio. |
+| **SSE Transport** | `app/mcp/sse_server.py` | MCP over HTTP Server-Sent Events (port 8000). |
+| **Tool Handlers** | `app/mcp/tools.py` | Input validation, rate limiting, response formatting. |
+| **Services** | `app/services/*.py` | Async business logic, DB queries, cursor pagination. |
+| **Models** | `app/models/*.py` | SQLAlchemy 2.0 ORM (4 tables, UUID PKs, indexes). |
+| **Schemas** | `app/schemas/*.py` | Pydantic v2 response models + `ToolResponse` envelope. |
+| **Rate Limiter** | `app/middleware/rate_limit.py` | Sliding-window per-tool rate limiting. |
+| **Migrations** | `alembic/` | Alembic migration for full schema. |
+| **Seed** | `scripts/seed.py` | Faker-based seed (10 companies, 80+ financials, 600+ prices, 40+ ratings). |
+| **Tests** | `tests/` | 30+ pytest-asyncio tests (tools, pagination, rate limiting, security). |
+| **Debug HTTP** | `app/dev/debug_server.py` | Optional `/debug/*` endpoints for manual testing (not MCP). |
 
 ---
 
@@ -101,7 +105,11 @@ alembic upgrade head
 python -m scripts.seed
 ```
 
-### 6. Run the MCP server (stdio transport)
+---
+
+## Running the MCP Server
+
+### Option A: stdio transport (for Claude Desktop, Cursor)
 
 ```bash
 python -m app.mcp.server
@@ -109,23 +117,79 @@ python -m app.mcp.server
 
 The server communicates over **stdin/stdout** using JSON-RPC per the MCP specification.
 
-### 7. Run FastAPI debug server (optional)
+### Option B: SSE transport (for web clients)
 
 ```bash
-python -m app.main
+python -m app.mcp.sse_server
+# SSE stream:    GET  http://localhost:8000/sse
+# Post messages: POST http://localhost:8000/messages?session_id=<id>
+# Health check:  GET  http://localhost:8000/health
+```
+
+### Option C: HTTP debug server (optional, dev-only)
+
+```bash
+python -m app.dev.debug_server
 # → http://localhost:8000/health
 # → http://localhost:8000/docs  (Swagger UI)
 ```
 
-### 8. Run tests
+> **Note:** The debug server is NOT part of the MCP specification — it is a convenience tool for development without an MCP client.
+
+---
+
+## Using with Claude Desktop
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "financial-data": {
+      "command": "python",
+      "args": ["-m", "app.mcp.server"],
+      "env": {
+        "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/financial_mcp"
+      },
+      "cwd": "/path/to/repo1-mcp-server"
+    }
+  }
+}
+```
+
+Restart Claude Desktop, then try prompts like:
+
+- *"Search for technology companies in the database"* → uses `search_companies`
+- *"Compare Alpha Corp and Beta Industries on revenue"* → uses `compare_companies`
+- *"Show me the stock price chart for ALPH over the last month"* → uses `get_stock_price_history`
+- *"What are analysts saying about ALPH?"* → uses `get_analyst_consensus`
+
+## Using with Cursor
+
+Add to `.cursor/mcp.json` in your project:
+
+```json
+{
+  "servers": {
+    "financial-data": {
+      "command": "python",
+      "args": ["-m", "app.mcp.server"],
+      "cwd": "/path/to/repo1-mcp-server"
+    }
+  }
+}
+```
+
+## Testing with MCP Inspector
 
 ```bash
-pytest -v
+npx @modelcontextprotocol/inspector python -m app.mcp.server
+# Opens web UI at http://localhost:5173
 ```
 
 ---
 
-## MCP Tools Reference
+## MCP Tools Reference (6 tools)
 
 All tools return the standard **ToolResponse** envelope:
 
@@ -151,158 +215,222 @@ On error:
 }
 ```
 
----
-
-## Quick Demo — 6 Example Tool Calls
-
-Below are example calls (via the `/debug` HTTP endpoints) and expected responses.
-
 ### 1. `search_companies`
 
-```bash
-curl "http://localhost:8000/debug/search_companies?query=Alph&limit=5"
-```
+Search by name or ticker with **cursor-based pagination**.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | string | ✅ | Search term |
+| `limit` | integer | | Max results (1-50, default 10) |
+| `cursor` | string | | Opaque cursor from previous response |
+
+**Response data:**
 
 ```json
 {
-  "tool": "search_companies",
-  "ok": true,
-  "data": [
-    { "ticker": "ALPH", "name": "Alpha Corp", "sector": "Technology", "market_cap": 500000000000.0 }
-  ],
-  "error": null,
-  "meta": { "execution_ms": 8.3, "row_count": 1 }
+  "companies": [{"ticker": "ALPH", "name": "Alpha Corp", "sector": "Technology", "market_cap": 500000000000.0}],
+  "next_cursor": "eyJ0aWNrZXIiOiAiQUxQSCJ9",
+  "has_more": true
 }
 ```
 
 ### 2. `get_company_profile`
 
-```bash
-curl "http://localhost:8000/debug/get_company_profile?ticker=ALPH"
-```
+Full company profile by ticker.
 
-```json
-{
-  "tool": "get_company_profile",
-  "ok": true,
-  "data": {
-    "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    "ticker": "ALPH",
-    "name": "Alpha Corp",
-    "sector": "Technology",
-    "industry": "Software",
-    "market_cap": 500000000000.0,
-    "employees": 50000,
-    "description": "A leading technology company.",
-    "country": "US",
-    "currency": "USD"
-  },
-  "error": null,
-  "meta": { "execution_ms": 5.1, "row_count": 1 }
-}
-```
+| Parameter | Type | Required |
+|---|---|---|
+| `ticker` | string | ✅ |
 
 ### 3. `get_financial_summary`
 
-```bash
-curl "http://localhost:8000/debug/get_financial_summary?ticker=ALPH&years=2"
-```
+Per-year revenue, net_income, margins, and CAGR.
 
-```json
-{
-  "tool": "get_financial_summary",
-  "ok": true,
-  "data": {
-    "ticker": "ALPH",
-    "years_covered": 2,
-    "data": [
-      { "year": 2023, "revenue": 200000000000.0, "net_income": 40000000000.0, "operating_margin": 0.30, "net_margin": 0.20, "eps": 5.0 },
-      { "year": 2024, "revenue": 210000000000.0, "net_income": 44000000000.0, "operating_margin": 0.30, "net_margin": 0.20, "eps": 5.5 }
-    ],
-    "revenue_cagr": 0.05,
-    "net_income_cagr": 0.10
-  },
-  "error": null,
-  "meta": { "execution_ms": 12.0, "row_count": 2 }
-}
-```
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `ticker` | string | ✅ | Company ticker |
+| `years` | integer | | Years of history (default 3) |
 
 ### 4. `compare_companies`
 
-```bash
-curl "http://localhost:8000/debug/compare_companies?tickers=ALPH,BETA&metric=market_cap"
-```
+Compare 2+ companies on a single metric.
 
-```json
-{
-  "tool": "compare_companies",
-  "ok": true,
-  "data": {
-    "comparison": [
-      { "ticker": "ALPH", "metric": "market_cap", "value": 500000000000.0 },
-      { "ticker": "BETA", "metric": "market_cap", "value": 120000000000.0 }
-    ],
-    "winner": "ALPH",
-    "explanation": "ALPH leads on market_cap among ['ALPH', 'BETA']."
-  },
-  "error": null,
-  "meta": { "execution_ms": 9.2, "row_count": 2 }
-}
-```
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `tickers` | string[] | ✅ | At least 2 tickers |
+| `metric` | enum | ✅ | `revenue`, `net_income`, `market_cap`, `operating_margin`, `net_margin` |
+| `year` | integer | | Specific year (defaults to latest) |
 
 ### 5. `get_stock_price_history`
 
-```bash
-curl "http://localhost:8000/debug/get_stock_price_history?ticker=ALPH&start_date=2024-03-01&end_date=2024-03-15"
-```
+Daily OHLC prices with **cursor-based pagination**.
 
-```json
-{
-  "tool": "get_stock_price_history",
-  "ok": true,
-  "data": {
-    "ticker": "ALPH",
-    "start_date": "2024-03-01",
-    "end_date": "2024-03-15",
-    "prices": [
-      { "date": "2024-03-01", "open": 150.0, "high": 152.5, "low": 148.0, "close": 151.2, "volume": 5000000, "daily_return": null },
-      { "date": "2024-03-04", "open": 151.2, "high": 153.0, "low": 149.5, "close": 152.0, "volume": 4500000, "daily_return": 0.00529101 }
-    ],
-    "total_return_pct": 0.012,
-    "max_drawdown_pct": -0.008
-  },
-  "error": null,
-  "meta": { "execution_ms": 7.5, "row_count": 10 }
-}
-```
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `ticker` | string | ✅ | Company ticker |
+| `start_date` | string | ✅ | YYYY-MM-DD |
+| `end_date` | string | ✅ | YYYY-MM-DD |
+| `limit` | integer | | Max rows per page (1-500, default 100) |
+| `cursor` | string | | Pagination cursor |
 
 ### 6. `get_analyst_consensus`
 
-```bash
-curl "http://localhost:8000/debug/get_analyst_consensus?ticker=ALPH"
+Analyst rating counts, average price target, and 5 most recent ratings.
+
+| Parameter | Type | Required |
+|---|---|---|
+| `ticker` | string | ✅ |
+
+---
+
+## MCP Resources (2)
+
+Resources expose reusable, read-only data that clients can query independently of tools.
+
+| URI | Description |
+|---|---|
+| `financial://sectors` | List of all sectors with company counts |
+| `financial://metrics` | Available comparison metrics with descriptions |
+
+### Example: List resources request
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "resources/list"}
 ```
+
+### Example: Read resource
+
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "resources/read", "params": {"uri": "financial://sectors"}}
+```
+
+---
+
+## MCP Prompts (2)
+
+Prompt templates guide an LLM through multi-step analyses.
+
+| Name | Description | Arguments |
+|---|---|---|
+| `sector_analysis` | Analyse all companies in a sector | `sector` (required) |
+| `stock_momentum` | Find stocks with strong price momentum | `days` (optional, default 30) |
+
+### Example: Get prompt
+
+```json
+{"jsonrpc": "2.0", "id": 3, "method": "prompts/get", "params": {"name": "sector_analysis", "arguments": {"sector": "Technology"}}}
+```
+
+---
+
+## Security
+
+### Input Validation
+
+- All tool inputs are validated before DB queries.
+- SQLAlchemy parameterised queries prevent SQL injection.
+- Search queries are escaped via ILIKE patterns (no raw SQL).
+
+### Rate Limiting
+
+Every tool is rate-limited via a sliding-window algorithm:
+
+| Tool | Limit |
+|---|---|
+| Most tools | 60 req / min |
+| `compare_companies` | 30 req / min |
+
+When exceeded, the response includes error code `RATE_LIMIT_EXCEEDED` with a retry-after hint.
+
+### Why No Supabase RLS?
+
+This MCP server runs locally as a single-user tool (stdio or SSE). Row Level Security is designed for multi-tenant web applications where different users should see different data.  Since the MCP client user has full access to all financial data by design, RLS adds complexity without benefit.  See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full ADR.
+
+---
+
+## Example MCP Protocol Messages
+
+### Initialize
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}}}
+```
+
+### List Tools
+
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+```
+
+### Call Tool
 
 ```json
 {
-  "tool": "get_analyst_consensus",
-  "ok": true,
-  "data": {
-    "ticker": "ALPH",
-    "total_ratings": 5,
-    "rating_counts": [
-      { "rating": "Strong Buy", "count": 2 },
-      { "rating": "Buy", "count": 2 },
-      { "rating": "Hold", "count": 1 }
-    ],
-    "average_price_target": 170.0,
-    "recent_ratings": [
-      { "firm_name": "Citi", "rating": "Strong Buy", "price_target": 180.0, "rating_date": "2024-06-05", "notes": null },
-      { "firm_name": "Barclays", "rating": "Buy", "price_target": 175.0, "rating_date": "2024-06-04", "notes": "Note from Barclays" }
-    ]
-  },
-  "error": null,
-  "meta": { "execution_ms": 6.0, "row_count": 5 }
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "search_companies",
+    "arguments": {"query": "Tech", "limit": 5}
+  }
 }
+```
+
+### Expected Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"tool\":\"search_companies\",\"ok\":true,\"data\":{\"companies\":[...],\"next_cursor\":null,\"has_more\":false},\"meta\":{\"execution_ms\":8.3,\"row_count\":1}}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Tests
+
+```bash
+# Run all tests
+pytest -v
+
+# With coverage
+pytest --cov=app tests/
+
+# Individual test suites
+pytest tests/test_tools_search.py -v
+pytest tests/test_pagination.py -v
+pytest tests/test_rate_limiting.py -v
+pytest tests/test_performance.py -v
+pytest tests/test_mcp_integration.py -v
+```
+
+---
+
+## Performance
+
+Benchmarks (local PostgreSQL 16, Apple M-series):
+
+| Tool | Avg Latency |
+|---|---|
+| `search_companies` | ~8 ms |
+| `get_company_profile` | ~5 ms |
+| `get_financial_summary` (3 years) | ~12 ms |
+| `get_stock_price_history` (1 year, ~250 rows) | ~15 ms |
+| `get_analyst_consensus` | ~6 ms |
+
+Run benchmarks:
+
+```bash
+python -m scripts.benchmark
 ```
 
 ---
@@ -313,6 +441,12 @@ curl "http://localhost:8000/debug/get_analyst_consensus?ticker=ALPH"
 ruff check app/ tests/ scripts/
 black --check app/ tests/ scripts/
 ```
+
+---
+
+## Project Documentation
+
+- [Architecture Decision Records](docs/ARCHITECTURE.md) – explains RLS, pagination, lazy loading, and rate limiting design choices.
 
 ---
 

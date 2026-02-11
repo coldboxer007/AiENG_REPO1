@@ -20,7 +20,7 @@ class StockPriceRow(BaseModel):
 
 
 class StockPriceHistoryData(BaseModel):
-    """Stock price history with computed stats."""
+    """Stock price history with computed stats and optional pagination."""
 
     ticker: str
     start_date: date
@@ -28,3 +28,5 @@ class StockPriceHistoryData(BaseModel):
     prices: list[StockPriceRow]
     total_return_pct: float | None = None
     max_drawdown_pct: float | None = None
+    next_cursor: str | None = None
+    has_more: bool = False

@@ -1,4 +1,4 @@
-"""MCP server bootstrap – registers tools and runs the stdio transport."""
+"""MCP server bootstrap – registers tools, resources, prompts and runs transports."""
 
 from __future__ import annotations
 
@@ -8,9 +8,13 @@ import logging
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, Resource, Prompt, PromptMessage, PromptArgument
+
+from sqlalchemy import select, func
 
 from app.config import settings
+from app.db import async_session_factory
+from app.models.company import Company
 from app.mcp.tools import (
     handle_search_companies,
     handle_get_company_profile,
@@ -30,14 +34,24 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="search_companies",
         description=(
-            "Search for companies by name or ticker. "
+            "Search for companies by name or ticker with cursor-based pagination. "
             "Returns matching companies with ticker, name, sector, and market_cap."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Search term (name or ticker substring)"},
-                "limit": {"type": "integer", "description": "Max results to return", "default": 10},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (1-50)",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 50,
+                },
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque pagination cursor from a previous response (optional)",
+                },
             },
             "required": ["query"],
         },
@@ -99,7 +113,8 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="get_stock_price_history",
         description=(
-            "Get daily OHLC prices, simple returns, and max drawdown for a date range."
+            "Get daily OHLC prices, simple returns, and max drawdown for a date range. "
+            "Supports cursor-based pagination for large date ranges."
         ),
         inputSchema={
             "type": "object",
@@ -107,6 +122,17 @@ TOOL_DEFINITIONS: list[Tool] = [
                 "ticker": {"type": "string", "description": "Company ticker symbol"},
                 "start_date": {"type": "string", "format": "date", "description": "Start date (YYYY-MM-DD)"},
                 "end_date": {"type": "string", "format": "date", "description": "End date (YYYY-MM-DD)"},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max rows per page (1-500)",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 500,
+                },
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque pagination cursor from a previous response (optional)",
+                },
             },
             "required": ["ticker", "start_date", "end_date"],
         },
@@ -144,6 +170,8 @@ def create_mcp_server() -> Server:
     """Create and configure the MCP server instance."""
     server = Server(settings.mcp_server_name)
 
+    # ── Tools ─────────────────────────────────────────────────────────────
+
     @server.list_tools()
     async def list_tools() -> list[Tool]:
         return TOOL_DEFINITIONS
@@ -166,6 +194,148 @@ def create_mcp_server() -> Server:
 
         result = await handler(arguments or {})
         return [TextContent(type="text", text=json.dumps(result, default=str))]
+
+    # ── Resources ─────────────────────────────────────────────────────────
+
+    @server.list_resources()
+    async def list_resources() -> list[Resource]:
+        """Expose reusable data resources for MCP clients."""
+        return [
+            Resource(
+                uri="financial://sectors",
+                name="Available Sectors",
+                description="List of all sectors in the database with company counts",
+                mimeType="application/json",
+            ),
+            Resource(
+                uri="financial://metrics",
+                name="Available Metrics",
+                description="List of all comparable financial metrics with descriptions",
+                mimeType="application/json",
+            ),
+        ]
+
+    @server.read_resource()
+    async def read_resource(uri: str) -> str:
+        """Read a named resource."""
+        if str(uri) == "financial://sectors":
+            async with async_session_factory() as session:
+                stmt = (
+                    select(
+                        Company.sector,
+                        func.count().label("count"),
+                    )
+                    .group_by(Company.sector)
+                    .order_by(func.count().desc())
+                )
+                result = await session.execute(stmt)
+                sectors = [
+                    {"sector": r.sector, "count": r.count}
+                    for r in result.all()
+                ]
+                return json.dumps(sectors, indent=2)
+
+        if str(uri) == "financial://metrics":
+            return json.dumps(
+                {
+                    "metrics": [
+                        "revenue",
+                        "net_income",
+                        "market_cap",
+                        "operating_margin",
+                        "net_margin",
+                    ],
+                    "descriptions": {
+                        "revenue": "Total revenue in USD",
+                        "net_income": "Net income after taxes in USD",
+                        "market_cap": "Market capitalisation in USD",
+                        "operating_margin": "Operating income / revenue (ratio)",
+                        "net_margin": "Net income / revenue (ratio)",
+                    },
+                },
+                indent=2,
+            )
+
+        raise ValueError(f"Unknown resource: {uri}")
+
+    # ── Prompts ───────────────────────────────────────────────────────────
+
+    @server.list_prompts()
+    async def list_prompts() -> list[Prompt]:
+        """Provide prompt templates for common financial analyses."""
+        return [
+            Prompt(
+                name="sector_analysis",
+                description="Analyse all companies in a specific sector",
+                arguments=[
+                    PromptArgument(
+                        name="sector",
+                        description="Sector to analyse (e.g. Technology, Healthcare)",
+                        required=True,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="stock_momentum",
+                description="Find stocks with strong recent price momentum",
+                arguments=[
+                    PromptArgument(
+                        name="days",
+                        description="Lookback period in days (default 30)",
+                        required=False,
+                    ),
+                ],
+            ),
+        ]
+
+    @server.get_prompt()
+    async def get_prompt(name: str, arguments: dict | None = None) -> list[PromptMessage]:
+        """Return a filled prompt template."""
+        args = arguments or {}
+
+        if name == "sector_analysis":
+            sector = args.get("sector", "Technology")
+            return [
+                PromptMessage(
+                    role="user",
+                    content=TextContent(
+                        type="text",
+                        text=(
+                            f"Analyse the {sector} sector using these steps:\n\n"
+                            f"1. Use search_companies to find all {sector} companies\n"
+                            "2. For each company, get_financial_summary for the last 3 years\n"
+                            "3. Use compare_companies to rank them by revenue growth (revenue)\n"
+                            "4. Get get_analyst_consensus for the top 3 performers\n"
+                            "5. Summarise which companies are best positioned for growth\n\n"
+                            "Focus on revenue trends, profitability margins, and analyst sentiment."
+                        ),
+                    ),
+                )
+            ]
+
+        if name == "stock_momentum":
+            days = int(args.get("days", 30))
+            return [
+                PromptMessage(
+                    role="user",
+                    content=TextContent(
+                        type="text",
+                        text=(
+                            f"Find stocks with strong momentum in the last {days} days:\n\n"
+                            "1. For each company in the database:\n"
+                            f"   - Use get_stock_price_history for the last {days} days\n"
+                            "   - Note the total_return_pct\n"
+                            "2. Rank companies by total return\n"
+                            "3. For top 5 performers:\n"
+                            "   - Get get_analyst_consensus\n"
+                            "   - Check if analyst sentiment aligns with price momentum\n"
+                            "4. Identify momentum + positive analyst sentiment plays"
+                        ),
+                    ),
+                )
+            ]
+
+        raise ValueError(f"Unknown prompt: {name}")
 
     return server
 

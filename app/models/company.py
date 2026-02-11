@@ -35,10 +35,12 @@ class Company(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    # Relationships
-    financials = relationship("Financial", back_populates="company", lazy="selectin")
-    stock_prices = relationship("StockPrice", back_populates="company", lazy="selectin")
-    analyst_ratings = relationship("AnalystRating", back_populates="company", lazy="selectin")
+    # Relationships – use lazy="select" (default) so we only load related
+    # data when explicitly requested via selectinload() / joinedload().
+    # This prevents N+1 queries and unnecessary data transfer.
+    financials = relationship("Financial", back_populates="company", lazy="select")
+    stock_prices = relationship("StockPrice", back_populates="company", lazy="select")
+    analyst_ratings = relationship("AnalystRating", back_populates="company", lazy="select")
 
     __table_args__ = (
         Index("ix_companies_ticker", "ticker"),

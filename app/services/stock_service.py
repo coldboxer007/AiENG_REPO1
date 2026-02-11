@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from datetime import date
 
 from sqlalchemy import select, func
@@ -18,14 +20,43 @@ async def get_stock_price_history(
     ticker: str,
     start_date: date,
     end_date: date,
+    limit: int = 100,
+    cursor: str | None = None,
 ) -> StockPriceHistoryData | None:
-    """Return OHLC data, daily returns, and max drawdown for the given range."""
+    """Return OHLC data, daily returns, and max drawdown for the given range.
+
+    Supports cursor-based pagination for large date ranges.
+
+    Args:
+        session: Async DB session.
+        ticker: Company ticker.
+        start_date: Inclusive start date.
+        end_date: Inclusive end date.
+        limit: Max rows per page (capped at 500).
+        cursor: Opaque pagination cursor from a previous response.
+
+    Returns:
+        ``None`` if the ticker is not found.  Otherwise a
+        ``StockPriceHistoryData`` with a ``next_cursor`` field when more
+        pages exist.
+    """
+    limit = min(limit, 500)
+
     # Resolve company
     comp_stmt = select(Company.id).where(func.upper(Company.ticker) == ticker.upper())
     comp_result = await session.execute(comp_stmt)
     company_id = comp_result.scalar_one_or_none()
     if company_id is None:
         return None
+
+    # Decode cursor
+    cursor_date: date | None = None
+    if cursor:
+        try:
+            decoded = json.loads(base64.b64decode(cursor).decode())
+            cursor_date = date.fromisoformat(decoded["date"])
+        except Exception:
+            pass
 
     stmt = (
         select(StockPrice)
@@ -34,10 +65,25 @@ async def get_stock_price_history(
             StockPrice.date >= start_date,
             StockPrice.date <= end_date,
         )
-        .order_by(StockPrice.date)
     )
+
+    if cursor_date:
+        stmt = stmt.where(StockPrice.date > cursor_date)
+
+    stmt = stmt.order_by(StockPrice.date).limit(limit + 1)
+
     result = await session.execute(stmt)
-    rows = result.scalars().all()
+    rows = list(result.scalars().all())
+
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
+
+    # Build next cursor
+    next_cursor: str | None = None
+    if has_more and rows:
+        cursor_data = {"date": rows[-1].date.isoformat()}
+        next_cursor = base64.b64encode(json.dumps(cursor_data).encode()).decode()
 
     prices: list[StockPriceRow] = []
     closes: list[float] = []
@@ -72,4 +118,6 @@ async def get_stock_price_history(
         prices=prices,
         total_return_pct=total_ret,
         max_drawdown_pct=round(mdd, 6) if mdd is not None else None,
+        next_cursor=next_cursor,
+        has_more=has_more,
     )

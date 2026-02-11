@@ -9,6 +9,7 @@ from datetime import date, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_factory
+from app.middleware.rate_limit import rate_limiter, TOOL_RATE_LIMITS
 from app.schemas.common import ErrorDetail, Meta, ToolResponse
 from app.services import company_service, financial_service, stock_service, analyst_service
 from app.services.metrics import cagr
@@ -53,20 +54,47 @@ def _ok(tool: str, data, elapsed: float, row_count: int | None = None) -> dict:
     ).model_dump()
 
 
+async def _check_rate_limit(tool_name: str, t0: float) -> dict | None:
+    """Check rate limit for a tool.  Returns an error dict if blocked, else None."""
+    limits = TOOL_RATE_LIMITS.get(tool_name, {})
+    allowed, error_msg = await rate_limiter.check_rate_limit(
+        tool_name,
+        max_requests=limits.get("max_requests"),
+        window_seconds=limits.get("window_seconds"),
+    )
+    if not allowed:
+        elapsed = round((time.perf_counter() - t0) * 1000, 2)
+        return _error_response(
+            tool_name,
+            "RATE_LIMIT_EXCEEDED",
+            error_msg or "Rate limit exceeded",
+            elapsed,
+            hint="Wait before retrying. Standard limit: 60 requests/minute.",
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
 
 
 async def handle_search_companies(arguments: dict) -> dict:
-    """Search companies by name or ticker substring.
+    """Search companies by name or ticker substring with cursor pagination.
 
     Args:
-        arguments: {"query": str, "limit": int (default 10)}
+        arguments: {"query": str, "limit": int (default 10), "cursor": str | None}
     """
     t0 = time.perf_counter()
+
+    # Rate limit check
+    rate_error = await _check_rate_limit("search_companies", t0)
+    if rate_error:
+        return rate_error
+
     query = arguments.get("query", "")
     limit = int(arguments.get("limit", 10))
+    cursor = arguments.get("cursor")
 
     if not query or not query.strip():
         elapsed = round((time.perf_counter() - t0) * 1000, 2)
@@ -75,13 +103,19 @@ async def handle_search_companies(arguments: dict) -> dict:
         )
 
     async with async_session_factory() as session:
-        results = await company_service.search_companies(session, query, limit)
+        results, next_cursor = await company_service.search_companies(
+            session, query, limit, cursor
+        )
 
     elapsed = round((time.perf_counter() - t0) * 1000, 2)
     logger.info("search_companies query=%s results=%d ms=%.1f", query, len(results), elapsed)
     return _ok(
         "search_companies",
-        [r.model_dump() for r in results],
+        {
+            "companies": [r.model_dump() for r in results],
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
+        },
         elapsed,
         row_count=len(results),
     )
@@ -94,6 +128,11 @@ async def handle_get_company_profile(arguments: dict) -> dict:
         arguments: {"ticker": str}
     """
     t0 = time.perf_counter()
+
+    rate_error = await _check_rate_limit("get_company_profile", t0)
+    if rate_error:
+        return rate_error
+
     ticker = arguments.get("ticker", "")
 
     if not ticker or not ticker.strip():
@@ -120,6 +159,11 @@ async def handle_get_financial_summary(arguments: dict) -> dict:
         arguments: {"ticker": str, "years": int (default 3)}
     """
     t0 = time.perf_counter()
+
+    rate_error = await _check_rate_limit("get_financial_summary", t0)
+    if rate_error:
+        return rate_error
+
     ticker = arguments.get("ticker", "")
     years = int(arguments.get("years", 3))
 
@@ -157,6 +201,11 @@ async def handle_compare_companies(arguments: dict) -> dict:
     """
     VALID_METRICS = {"revenue", "net_income", "market_cap", "operating_margin", "net_margin"}
     t0 = time.perf_counter()
+
+    rate_error = await _check_rate_limit("compare_companies", t0)
+    if rate_error:
+        return rate_error
+
     tickers = arguments.get("tickers", [])
     metric = arguments.get("metric", "")
     year = arguments.get("year")
@@ -224,15 +273,23 @@ async def handle_compare_companies(arguments: dict) -> dict:
 
 
 async def handle_get_stock_price_history(arguments: dict) -> dict:
-    """Return daily OHLC, returns, max drawdown for a date range.
+    """Return daily OHLC, returns, max drawdown for a date range with cursor pagination.
 
     Args:
-        arguments: {"ticker": str, "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
+        arguments: {"ticker": str, "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD",
+                     "limit": int (default 100), "cursor": str | None}
     """
     t0 = time.perf_counter()
+
+    rate_error = await _check_rate_limit("get_stock_price_history", t0)
+    if rate_error:
+        return rate_error
+
     ticker = arguments.get("ticker", "")
     start_str = arguments.get("start_date", "")
     end_str = arguments.get("end_date", "")
+    limit = int(arguments.get("limit", 100))
+    cursor = arguments.get("cursor")
 
     if not ticker or not start_str or not end_str:
         elapsed = round((time.perf_counter() - t0) * 1000, 2)
@@ -252,7 +309,9 @@ async def handle_get_stock_price_history(arguments: dict) -> dict:
         )
 
     async with async_session_factory() as session:
-        data = await stock_service.get_stock_price_history(session, ticker, start_date, end_date)
+        data = await stock_service.get_stock_price_history(
+            session, ticker, start_date, end_date, limit, cursor
+        )
 
     elapsed = round((time.perf_counter() - t0) * 1000, 2)
     if data is None:
@@ -277,6 +336,11 @@ async def handle_get_analyst_consensus(arguments: dict) -> dict:
         arguments: {"ticker": str}
     """
     t0 = time.perf_counter()
+
+    rate_error = await _check_rate_limit("get_analyst_consensus", t0)
+    if rate_error:
+        return rate_error
+
     ticker = arguments.get("ticker", "")
 
     if not ticker or not ticker.strip():

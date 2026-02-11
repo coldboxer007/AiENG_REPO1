@@ -1,0 +1,79 @@
+# MCP Financial Server – Development Guide
+
+## Project Structure
+
+- `app/mcp/server.py` – MCP server factory (tools, resources, prompts)
+- `app/mcp/sse_server.py` – SSE transport (HTTP)
+- `app/mcp/tools.py` – Tool handler implementations
+- `app/services/` – Business logic and database queries
+- `app/models/` – SQLAlchemy 2.0 ORM models
+- `app/schemas/` – Pydantic v2 response schemas
+- `app/middleware/` – Rate limiting
+- `app/dev/` – Optional HTTP debug server (not MCP)
+- `docs/ARCHITECTURE.md` – ADRs and design decisions
+
+## Key Patterns
+
+### Adding a New Tool
+1. Define tool schema in `app/mcp/server.py` → `TOOL_DEFINITIONS`
+2. Create handler in `app/mcp/tools.py`
+3. Add service layer function in `app/services/`
+4. Register handler in `TOOL_HANDLERS` dict
+5. Write tests in `tests/test_tools_*.py`
+6. Update README with example
+
+### Database Queries
+- ALWAYS use parameterized queries (SQLAlchemy ORM handles this)
+- Use explicit `selectinload()` for relationships, never `lazy="selectin"`
+- Add indexes for columns used in WHERE / ORDER BY
+- Prefer cursor pagination over offset for large result sets
+
+### Error Handling
+- Return `ToolResponse` with `ok=False`
+- Include `error_code`, `message`, and `hint`
+- Log errors at appropriate level
+
+### Response Format
+All tools return:
+```json
+{
+  "tool": "tool_name",
+  "ok": true,
+  "data": {},
+  "error": null,
+  "meta": {"execution_ms": 12.5, "row_count": 3}
+}
+```
+
+### Rate Limiting
+- Every tool handler calls `_check_rate_limit()` first
+- Limits are configured per-tool in `app/middleware/rate_limit.py`
+
+### Pagination
+- Services return `(results, next_cursor)` tuple
+- Cursors are opaque base64-encoded JSON
+- Response includes `has_more` flag
+
+## Running
+
+```bash
+# MCP server (stdio)
+python -m app.mcp.server
+
+# MCP server (SSE)
+python -m app.mcp.sse_server
+
+# Tests
+pytest -v
+
+# Coverage
+pytest --cov=app tests/
+
+# Benchmark
+python -m scripts.benchmark
+```
+
+## Common Issues
+- **Lazy loading**: Use `lazy="select"` + explicit loading in service
+- **Rate limiting**: Check `_check_rate_limit()` at start of handler
+- **Pagination**: Return `(results, next_cursor)` tuple from service
